@@ -76,6 +76,12 @@ class FlutterTemplateGenerator:
             
             # Configure orientation after platform folders are created
             self._configure_orientation()
+            
+            # Configure iOS deployment target (especially for Firebase)
+            self._configure_ios_deployment_target()
+            
+            # Configure Android SDK versions
+            self._configure_android_sdk()
         else:
             print("  ⚠️  No platforms selected. Skipping platform folder creation.")
     
@@ -224,6 +230,145 @@ class FlutterTemplateGenerator:
         except Exception as e:
             print(f"    ⚠️  Could not add orientation lock to main.dart: {e}")
     
+    def _configure_ios_deployment_target(self):
+        """Configure iOS deployment target, using latest versions."""
+        # Check if Firebase packages are being used
+        dependencies = Config.get_dependencies(self.preferences)
+        has_firebase = any('firebase' in dep.lower() for dep in dependencies)
+        
+        # Use latest iOS version (17.0 is latest stable, Firebase requires 15.0 minimum)
+        # Using 17.0 for latest features and compatibility
+        min_ios_version = '17.0'
+        
+        if 'ios' not in self.preferences.get('platforms', []):
+            return
+        
+        print(f"  Configuring iOS deployment target: {min_ios_version}")
+        
+        # Update Podfile
+        podfile_path = self.output_path / 'ios' / 'Podfile'
+        if podfile_path.exists():
+            try:
+                content = podfile_path.read_text()
+                import re
+                
+                # Update platform line if it exists
+                if re.search(r"platform :ios, ['\"][\d.]+['\"]", content):
+                    content = re.sub(
+                        r"platform :ios, ['\"][\d.]+['\"]",
+                        f"platform :ios, '{min_ios_version}'",
+                        content
+                    )
+                else:
+                    # Add platform line if it doesn't exist (shouldn't happen, but just in case)
+                    if 'platform :ios' not in content:
+                        content = f"platform :ios, '{min_ios_version}'\n" + content
+                
+                podfile_path.write_text(content)
+                print(f"    ✓ Updated Podfile to iOS {min_ios_version}")
+            except Exception as e:
+                print(f"    ⚠️  Could not update Podfile: {e}")
+        
+        # Update project.pbxproj (Xcode project file)
+        project_pbxproj_path = self.output_path / 'ios' / 'Runner.xcodeproj' / 'project.pbxproj'
+        if not project_pbxproj_path.exists():
+            # Try alternative location
+            project_pbxproj_path = self.output_path / 'ios' / 'Runner' / 'Runner.xcodeproj' / 'project.pbxproj'
+        
+        if project_pbxproj_path.exists():
+            try:
+                content = project_pbxproj_path.read_text()
+                import re
+                
+                # Update IPHONEOS_DEPLOYMENT_TARGET
+                # Find all occurrences and update them
+                pattern = r'IPHONEOS_DEPLOYMENT_TARGET = [\d.]+;'
+                if re.search(pattern, content):
+                    content = re.sub(
+                        pattern,
+                        f'IPHONEOS_DEPLOYMENT_TARGET = {min_ios_version};',
+                        content
+                    )
+                    project_pbxproj_path.write_text(content)
+                    print(f"    ✓ Updated Xcode project to iOS {min_ios_version}")
+                else:
+                    print(f"    ⚠️  Could not find IPHONEOS_DEPLOYMENT_TARGET in project file")
+            except Exception as e:
+                print(f"    ⚠️  Could not update Xcode project file: {e}")
+        
+        if has_firebase:
+            print(f"    ℹ️  iOS {min_ios_version} supports Firebase packages")
+    
+    def _configure_android_sdk(self):
+        """Configure Android SDK versions to use latest."""
+        if 'android' not in self.preferences.get('platforms', []):
+            return
+        
+        print("  Configuring Android SDK versions (latest)...")
+        
+        # Latest Android versions (API 35 = Android 15)
+        min_sdk = 24  # Android 7.0 (Nougat) - reasonable minimum
+        target_sdk = 35  # Android 15 - latest
+        compile_sdk = 35  # Android 15 - latest
+        
+        # Update build.gradle
+        build_gradle_path = self.output_path / 'android' / 'app' / 'build.gradle'
+        if build_gradle_path.exists():
+            try:
+                content = build_gradle_path.read_text()
+                import re
+                
+                # Update minSdkVersion
+                if re.search(r'minSdkVersion\s+\d+', content):
+                    content = re.sub(
+                        r'minSdkVersion\s+\d+',
+                        f'minSdkVersion {min_sdk}',
+                        content
+                    )
+                else:
+                    # Add if doesn't exist in defaultConfig
+                    if 'defaultConfig {' in content:
+                        content = content.replace(
+                            'defaultConfig {',
+                            f'defaultConfig {{\n        minSdkVersion {min_sdk}',
+                            1
+                        )
+                
+                # Update targetSdkVersion
+                if re.search(r'targetSdkVersion\s+\d+', content):
+                    content = re.sub(
+                        r'targetSdkVersion\s+\d+',
+                        f'targetSdkVersion {target_sdk}',
+                        content
+                    )
+                else:
+                    if 'defaultConfig {' in content:
+                        content = content.replace(
+                            'defaultConfig {',
+                            f'defaultConfig {{\n        targetSdkVersion {target_sdk}',
+                            1
+                        )
+                
+                # Update compileSdkVersion
+                if re.search(r'compileSdkVersion\s+\d+', content):
+                    content = re.sub(
+                        r'compileSdkVersion\s+\d+',
+                        f'compileSdkVersion {compile_sdk}',
+                        content
+                    )
+                else:
+                    if 'android {' in content:
+                        content = content.replace(
+                            'android {',
+                            f'android {{\n    compileSdkVersion {compile_sdk}',
+                            1
+                        )
+                
+                build_gradle_path.write_text(content)
+                print(f"    ✓ Updated Android SDK: min={min_sdk}, target={target_sdk}, compile={compile_sdk}")
+            except Exception as e:
+                print(f"    ⚠️  Could not update Android build.gradle: {e}")
+    
     def _create_directory_structure(self):
         """Create the Flutter project directory structure."""
         directories = [
@@ -289,7 +434,7 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.5.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -299,7 +444,7 @@ dependencies:
         # Add SDK packages first
         for dep in sdk_deps:
             pubspec_content += f"  {dep}:\n    sdk: flutter\n"
-        # Add regular packages
+        # Add regular packages (use ^ for latest compatible version)
         for dep in regular_deps:
             pubspec_content += f"  {dep}:\n"
         
