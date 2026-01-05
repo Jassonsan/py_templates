@@ -85,9 +85,16 @@ class FlutterTemplateGenerator:
         dependencies = Config.get_dependencies(self.preferences)
         dev_dependencies = Config.get_dev_dependencies(self.preferences)
         
+        # SDK packages that need 'sdk: flutter'
+        sdk_packages = ['flutter_localizations']
+        sdk_dev_packages = ['flutter_test']
+        
         # Separate SDK packages from regular packages
-        sdk_dev_deps = ['flutter_test']
-        regular_dev_deps = [d for d in dev_dependencies if d not in sdk_dev_deps]
+        sdk_deps = [d for d in dependencies if d in sdk_packages]
+        regular_deps = [d for d in dependencies if d not in sdk_packages]
+        
+        sdk_dev_deps = [d for d in dev_dependencies if d in sdk_dev_packages]
+        regular_dev_deps = [d for d in dev_dependencies if d not in sdk_dev_packages]
         
         pubspec_content = f"""name: {self.project_name.lower().replace(' ', '_')}
 description: A Flutter {self.app_category} template.
@@ -102,15 +109,18 @@ dependencies:
     sdk: flutter
 """
         
-        for dep in dependencies:
+        # Add SDK packages first
+        for dep in sdk_deps:
+            pubspec_content += f"  {dep}:\n    sdk: flutter\n"
+        # Add regular packages
+        for dep in regular_deps:
             pubspec_content += f"  {dep}:\n"
         
         pubspec_content += "\ndev_dependencies:\n"
-        # Add SDK packages first
+        # Add SDK dev packages first
         for dep in sdk_dev_deps:
-            if dep in dev_dependencies:
-                pubspec_content += f"  {dep}:\n    sdk: flutter\n"
-        # Add regular packages
+            pubspec_content += f"  {dep}:\n    sdk: flutter\n"
+        # Add regular dev packages
         for dep in regular_dev_deps:
             pubspec_content += f"  {dep}:\n"
         
