@@ -3,6 +3,7 @@ Flutter template generator.
 """
 
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, Any
 from config import Config
@@ -19,6 +20,8 @@ class FlutterTemplateGenerator:
     
     def generate(self):
         """Generate the complete Flutter template."""
+        import subprocess
+        
         # Create directory structure
         self._create_directory_structure()
         
@@ -36,6 +39,190 @@ class FlutterTemplateGenerator:
         
         # Generate README
         self._generate_readme()
+        
+        # Create platform folders based on user selection
+        selected_platforms = self.preferences.get('platforms', ['android', 'ios'])
+        if selected_platforms:
+            platforms_str = ','.join(selected_platforms)
+            print(f"  Creating platform folders ({platforms_str})...")
+            try:
+                # Run flutter create to generate platform folders
+                # Use --project-name to match our project name
+                project_name = self.project_name.lower().replace(' ', '_')
+                # Build the command with selected platforms
+                cmd = ['flutter', 'create', '--project-name', project_name, f'--platforms={platforms_str}', '.']
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.output_path,
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if result.returncode != 0:
+                    # If that fails, try without project name (in case it conflicts)
+                    subprocess.run(
+                        ['flutter', 'create', f'--platforms={platforms_str}', '.'],
+                        cwd=self.output_path,
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+            except FileNotFoundError:
+                print("  ⚠️  Warning: Flutter not found in PATH. Platform folders not created.")
+                print(f"     Run 'flutter create --platforms={platforms_str} .' manually in the project directory.")
+            except Exception as e:
+                print(f"  ⚠️  Warning: Could not create platform folders: {e}")
+                print(f"     Run 'flutter create --platforms={platforms_str} .' manually in the project directory.")
+            
+            # Configure orientation after platform folders are created
+            self._configure_orientation()
+        else:
+            print("  ⚠️  No platforms selected. Skipping platform folder creation.")
+    
+    def _configure_orientation(self):
+        """Configure screen orientation for Android and iOS."""
+        orientation = self.preferences.get('orientation', 'both')
+        
+        if orientation == 'both':
+            return  # No need to lock orientation
+        
+        print(f"  Configuring orientation: {orientation}")
+        
+        # Configure Android
+        android_manifest = self.output_path / 'android' / 'app' / 'src' / 'main' / 'AndroidManifest.xml'
+        if android_manifest.exists():
+            try:
+                content = android_manifest.read_text()
+                # Find the activity tag and add screenOrientation
+                import re
+                # Map orientation to Android values
+                android_orientation = 'portrait' if orientation == 'portrait' else 'landscape'
+                
+                # Check if screenOrientation already exists
+                if 'android:screenOrientation' not in content:
+                    # Add screenOrientation to the main activity
+                    content = re.sub(
+                        r'(<activity[^>]*android:name="[^"]*MainActivity"[^>]*)>',
+                        rf'\1 android:screenOrientation="{android_orientation}">',
+                        content
+                    )
+                    android_manifest.write_text(content)
+                    print(f"    ✓ Android configured for {orientation} mode")
+            except Exception as e:
+                print(f"    ⚠️  Could not configure Android orientation: {e}")
+        
+        # Configure iOS - this is done via Info.plist
+        ios_info_plist = self.output_path / 'ios' / 'Runner' / 'Info.plist'
+        if ios_info_plist.exists():
+            try:
+                content = ios_info_plist.read_text()
+                # Map orientation to iOS values
+                if orientation == 'portrait':
+                    # Only allow portrait orientations
+                    portrait_config = """    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    </array>"""
+                else:  # landscape
+                    # Only allow landscape orientations
+                    portrait_config = """    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>"""
+                
+                # Check if orientation keys already exist
+                if 'UISupportedInterfaceOrientations' not in content:
+                    # Add before closing </dict> tag
+                    content = content.replace('</dict>', f'{portrait_config}\n</dict>')
+                    ios_info_plist.write_text(content)
+                    print(f"    ✓ iOS configured for {orientation} mode")
+            except Exception as e:
+                print(f"    ⚠️  Could not configure iOS orientation: {e}")
+        
+        # Also add programmatic orientation lock in main.dart
+        self._add_orientation_lock_to_main()
+    
+    def _add_orientation_lock_to_main(self):
+        """Add orientation locking code to main.dart."""
+        orientation = self.preferences.get('orientation', 'both')
+        if orientation == 'both':
+            return
+        
+        main_dart_path = self.output_path / 'lib' / 'main.dart'
+        if not main_dart_path.exists():
+            return
+        
+        try:
+            content = main_dart_path.read_text()
+            
+            # Check if SystemChrome.setPreferredOrientations is already there
+            if 'SystemChrome.setPreferredOrientations' in content:
+                return
+            
+            # Import SystemChrome if not already imported
+            if 'import \'package:flutter/services.dart\';' not in content:
+                # Add import after other imports
+                import re
+                content = re.sub(
+                    r"(import 'package:flutter/material.dart';)",
+                    r"\1\nimport 'package:flutter/services.dart';",
+                    content
+                )
+            
+            # Map orientation to DeviceOrientation values
+            if orientation == 'portrait':
+                orientations = "[DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]"
+            else:  # landscape
+                orientations = "[DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]"
+            
+            # Add SystemChrome configuration in main() function
+            orientation_code = f"""
+  // Lock orientation to {orientation}
+  await SystemChrome.setPreferredOrientations({orientations});
+"""
+            
+            # Add after runApp or at the start of main
+            if 'void main()' in content:
+                # Find the main function and add orientation lock
+                import re
+                # Add after runApp call or at the end of main function
+                if 'runApp(' in content:
+                    # Add before runApp
+                    content = re.sub(
+                        r'(void main\(\)[^{]*\{)',
+                        rf'\1{orientation_code}',
+                        content,
+                        count=1
+                    )
+                else:
+                    # Add at the start of main function
+                    content = re.sub(
+                        r'(void main\(\)[^{]*\{)',
+                        rf'\1{orientation_code}',
+                        content,
+                        count=1
+                    )
+                
+                # Make main async if needed
+                if 'Future<void> main()' not in content and 'await' in orientation_code:
+                    content = content.replace('void main()', 'Future<void> main()', 1)
+            
+            main_dart_path.write_text(content)
+            print(f"    ✓ Added programmatic orientation lock to main.dart")
+        except Exception as e:
+            print(f"    ⚠️  Could not add orientation lock to main.dart: {e}")
     
     def _create_directory_structure(self):
         """Create the Flutter project directory structure."""

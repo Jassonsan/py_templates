@@ -114,6 +114,32 @@ class QuestionHandler:
         """Collect preferences for Flutter apps."""
         print("Let's configure your Flutter app template...\n")
         
+        # Platform selection
+        print("\n" + "=" * 60)
+        print("Platform Selection:")
+        print("=" * 60)
+        print("Which platforms do you want to support?")
+        print("(You can select multiple platforms)")
+        print("=" * 60)
+        
+        platforms = {
+            'android': self._ask_yes_no("  Android?", default=True),
+            'ios': self._ask_yes_no("  iOS?", default=True),
+            'web': self._ask_yes_no("  Web?", default=False),
+            'macos': self._ask_yes_no("  macOS?", default=False),
+            'windows': self._ask_yes_no("  Windows?", default=False),
+            'linux': self._ask_yes_no("  Linux?", default=False),
+        }
+        
+        # Filter to only selected platforms
+        selected_platforms = [platform for platform, selected in platforms.items() if selected]
+        if not selected_platforms:
+            print("  ⚠️  No platforms selected. Defaulting to Android and iOS.")
+            selected_platforms = ['android', 'ios']
+        
+        self.preferences['platforms'] = selected_platforms
+        print(f"\n✓ Selected platforms: {', '.join([p.upper() for p in selected_platforms])}")
+        
         # App type (game or transactional)
         app_category = self._ask_choice(
             "What type of app are you building?",
@@ -142,6 +168,32 @@ class QuestionHandler:
             default=0
         )
         self.preferences['database'] = database_choice.lower().replace(' ', '_')
+        
+        # Screen orientation
+        print("\n" + "=" * 60)
+        print("Screen Orientation:")
+        print("=" * 60)
+        print("Portrait mode: Phone held vertically (taller than wide)")
+        print("  • Best for: Reading, scrolling, forms, social media")
+        print("  • Example: Most apps like Instagram, Twitter, WhatsApp")
+        print("\nLandscape mode: Phone held horizontally (wider than tall)")
+        print("  • Best for: Games, videos, spreadsheets, presentations")
+        print("  • Example: Video players, racing games, calculators")
+        print("\nBoth: App can rotate between portrait and landscape")
+        print("  • Best for: Apps that benefit from both orientations")
+        print("=" * 60)
+        orientation_choice = self._ask_choice(
+            "Which screen orientation do you want?",
+            ["Portrait only", "Landscape only", "Both (rotatable)"],
+            default=0
+        )
+        # Map choice to orientation preference
+        if 'portrait' in orientation_choice.lower():
+            self.preferences['orientation'] = 'portrait'
+        elif 'landscape' in orientation_choice.lower():
+            self.preferences['orientation'] = 'landscape'
+        else:
+            self.preferences['orientation'] = 'both'
         
         # State management
         print("\n" + "=" * 60)
